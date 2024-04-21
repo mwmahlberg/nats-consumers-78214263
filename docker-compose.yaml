@@ -1,0 +1,61 @@
+version: "3.8"
+
+services:
+  # A nats cluster with 3 nodes
+  nats:
+    image: nats:2.10.14-alpine
+    command:
+      - "--debug"
+      - "-m"
+      - "8222"
+      - "--cluster"
+      - "nats://0.0.0.0:6222"
+      - "--routes"
+      # Note that this needs to be prefixed with the
+      # name of the directory that the docker-compose file is in.
+      # In this case it's "nats-consumers-78214263" (a mnemonic and question ID)
+      - "nats://nats-consumers-78214263-nats-1:6222"
+    hostname: nats
+    deploy:
+      replicas: 3
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/varz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # The producer
+  # You can scale this up via `docker compose scale producer=n`
+  # to see how the consumers handle the load
+  producer:
+    deploy:
+      replicas: 1
+    build:
+      context: .
+      args:
+        - BINARY_NAME=producer
+    command: ["/usr/local/bin/producer"]
+    environment:
+      - PRODUCER_NATS_URL=nats://nats:4222
+      - PRODUCER_PRODUCERS=1
+    depends_on:
+      nats:
+        condition: service_healthy
+  # The consumer
+  # You can scale this up via `docker compose scale consumer=n`
+  # to see how the consumers handle the load
+  consumer:
+    deploy:
+      replicas: 1
+    build:
+      context: .
+      args:
+        - BINARY_NAME=consumer
+    command: ["/usr/local/bin/consumer"]
+    environment:
+      - CONSUMER_NATS_URL=nats://nats:4222
+      - CONSUMER_TOPIC=test.>
+      - CONSUMER_CONSUMERS=15000
+    depends_on:
+      nats:
+        condition: service_healthy
